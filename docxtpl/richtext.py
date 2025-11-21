@@ -6,6 +6,7 @@ Created : 2021-07-30
 """
 try:
     from html import escape
+    import re
 except ImportError:
     # cgi.escape is deprecated in python 3.7
     from cgi import escape
@@ -20,6 +21,7 @@ class RichText(object):
 
     def __init__(self, text=None, **text_prop):
         self.xml = ""
+        self.prop = ""
         if text:
             self.add(text, **text_prop)
 
@@ -40,6 +42,7 @@ class RichText(object):
         url_id=None,
         rtl=False,
         lang=None,
+        use_prop=False,
     ):
 
         # If a RichText is added
@@ -58,60 +61,63 @@ class RichText(object):
             text = text.decode("utf-8", errors="ignore")
         text = escape(text)
 
-        prop = ""
+        if use_prop:
+            prop = self.prop
+        else:
+            prop = ""
 
-        if style:
-            prop += '<w:rStyle w:val="%s"/>' % style
-        if color:
-            if color[0] == "#":
-                color = color[1:]
-            prop += '<w:color w:val="%s"/>' % color
-        if highlight:
-            if highlight[0] == "#":
-                highlight = highlight[1:]
-            prop += '<w:shd w:fill="%s"/>' % highlight
-        if size:
-            prop += '<w:sz w:val="%s"/>' % size
-            prop += '<w:szCs w:val="%s"/>' % size
-        if subscript:
-            prop += '<w:vertAlign w:val="subscript"/>'
-        if superscript:
-            prop += '<w:vertAlign w:val="superscript"/>'
-        if bold:
-            prop += "<w:b/>"
+            if style:
+                prop += '<w:rStyle w:val="%s"/>' % style
+            if color:
+                if color[0] == "#":
+                    color = color[1:]
+                prop += '<w:color w:val="%s"/>' % color
+            if highlight:
+                if highlight[0] == "#":
+                    highlight = highlight[1:]
+                prop += '<w:shd w:fill="%s"/>' % highlight
+            if size:
+                prop += '<w:sz w:val="%s"/>' % size
+                prop += '<w:szCs w:val="%s"/>' % size
+            if subscript:
+                prop += '<w:vertAlign w:val="subscript"/>'
+            if superscript:
+                prop += '<w:vertAlign w:val="superscript"/>'
+            if bold:
+                prop += "<w:b/>"
+                if rtl:
+                    prop += "<w:bCs/>"
+            if italic:
+                prop += "<w:i/>"
+                if rtl:
+                    prop += "<w:iCs/>"
+            if underline:
+                if underline not in [
+                    "single",
+                    "double",
+                    "thick",
+                    "dotted",
+                    "dash",
+                    "dotDash",
+                    "dotDotDash",
+                    "wave",
+                ]:
+                    underline = "single"
+                prop += '<w:u w:val="%s"/>' % underline
+            if strike:
+                prop += "<w:strike/>"
+            if font:
+                regional_font = ""
+                if ":" in font:
+                    region, font = font.split(":", 1)
+                    regional_font = ' w:{region}="{font}"'.format(font=font, region=region)
+                prop += '<w:rFonts w:ascii="{font}" w:hAnsi="{font}" w:cs="{font}"{regional_font}/>'.format(
+                    font=font, regional_font=regional_font
+                )
             if rtl:
-                prop += "<w:bCs/>"
-        if italic:
-            prop += "<w:i/>"
-            if rtl:
-                prop += "<w:iCs/>"
-        if underline:
-            if underline not in [
-                "single",
-                "double",
-                "thick",
-                "dotted",
-                "dash",
-                "dotDash",
-                "dotDotDash",
-                "wave",
-            ]:
-                underline = "single"
-            prop += '<w:u w:val="%s"/>' % underline
-        if strike:
-            prop += "<w:strike/>"
-        if font:
-            regional_font = ""
-            if ":" in font:
-                region, font = font.split(":", 1)
-                regional_font = ' w:{region}="{font}"'.format(font=font, region=region)
-            prop += '<w:rFonts w:ascii="{font}" w:hAnsi="{font}" w:cs="{font}"{regional_font}/>'.format(
-                font=font, regional_font=regional_font
-            )
-        if rtl:
-            prop += '<w:rtl w:val="true"/>'
-        if lang:
-            prop += '<w:lang w:val="%s"/>' % lang
+                prop += '<w:rtl w:val="true"/>'
+            if lang:
+                prop += '<w:lang w:val="%s"/>' % lang
         xml = "<w:r>"
         if prop:
             xml += "<w:rPr>%s</w:rPr>" % prop
@@ -122,6 +128,12 @@ class RichText(object):
                 xml,
             )
         self.xml += xml
+
+    def set_prop(
+        self,
+        prop, # xml string between <w:rPr> and </w:rPr> tags (not inclusive)
+    ):
+        self.prop = prop
 
     def __unicode__(self):
         return self.xml
@@ -142,6 +154,7 @@ class RichTextParagraph(object):
 
     def __init__(self, text=None, **text_prop):
         self.xml = ""
+        self.prop = ""
         if text:
             self.add(text, **text_prop)
 
@@ -149,22 +162,46 @@ class RichTextParagraph(object):
         self,
         text,
         parastyle=None,
+        indent:int=None,
     ):
 
         # If a RichText is added
         if not isinstance(text, RichText):
             text = RichText(text)
 
-        prop = ""
         if parastyle:
-            prop += '<w:pStyle w:val="%s"/>' % parastyle
+            self.prop = ""
+            self.prop += '<w:pStyle w:val="%s"/>' % parastyle
 
+        if indent and self.prop:
+            self.change_indent(indent)
+
+        prop = self.prop
+        
         xml = "<w:p>"
         if prop:
             xml += "<w:pPr>%s</w:pPr>" % prop
         xml += text.xml
         xml += "</w:p>"
         self.xml += xml
+
+    def set_prop(
+        self,
+        prop, # xml string between <w:pPr> and </w:pPr> tags (not inclusive)
+    ):
+        self.prop = prop
+
+    def change_indent(
+        self,
+        indent: int
+    ):
+        """ Changes indent of self.prop inplace """
+        pattern = r'(<w:ilvl[^>]*w:val=")(\d+)(")'
+        replacement = r'\g<1>%s\3' % str(int(indent))
+        try:
+            self.prop = re.sub(pattern, replacement, self.prop, count=1)
+        except:
+            return None # return None if there was no indent
 
     def __unicode__(self):
         return self.xml
