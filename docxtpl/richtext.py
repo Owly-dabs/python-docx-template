@@ -173,7 +173,7 @@ class RichTextParagraph(object):
             self.prop = ""
             self.prop += '<w:pStyle w:val="%s"/>' % parastyle
 
-        if indent and self.prop:
+        if indent != None and indent>=0 and self.prop:
             self.change_indent(indent)
 
         prop = self.prop
@@ -201,7 +201,7 @@ class RichTextParagraph(object):
         try:
             self.prop = re.sub(pattern, replacement, self.prop, count=1)
         except:
-            return None # return None if there was no indent
+            raise ValueError
 
     def __unicode__(self):
         return self.xml
